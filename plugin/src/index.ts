@@ -125,6 +125,8 @@ async function findReusableBinding(providerName: string, host?: string): Promise
   // to a single host took as long as the sum of all the stale ones — measured at
   // 77s for one host across three dead ones. Resolving first also lets a
   // candidate that cannot be the requested host be skipped with no network work.
+  pruneOrphanLeases();
+
   let wanted: string | undefined;
   if (host) {
     try {
@@ -206,6 +208,30 @@ function rehydrateLeasesFromState(): void {
       continue;
     }
     leases.restore(binding.host, binding.workspaceID, binding.leaseMode);
+  }
+}
+
+/**
+ * Drop leases whose workspace no longer exists in persisted state.
+ *
+ * Leases are held in memory but the bindings they describe live on disk. If the
+ * state file is cleared, replaced, or written by another process while this
+ * plugin runs, the two diverge and every host reports "already leased" while
+ * `remote-disconnect` finds nothing to release — a dead end that only a restart
+ * could clear. Reconciling before each use keeps the two in step.
+ */
+function pruneOrphanLeases(): void {
+  const live = new Set(
+    state
+      .list()
+      .filter((binding) => binding.status !== "removed")
+      .map((binding) => binding.workspaceID),
+  );
+
+  for (const lease of leases.list()) {
+    if (!live.has(lease.workspaceID)) {
+      leases.release(lease.host, lease.workspaceID);
+    }
   }
 }
 
@@ -510,6 +536,7 @@ function buildToolDefinitions(): ToolDefinition[] {
       execute: async (args: { workspaceName: string; provider?: string; host?: string }) => {
         try {
           ensureInitialized();
+          pruneOrphanLeases();
           const providerName = args.provider || Object.keys(config.providers)[0];
           if (!providerName) {
             throw new Error("No providers configured for opencode-remote-provider");
