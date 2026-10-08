@@ -27,6 +27,13 @@ export interface TunnelConfig {
   localPortRange?: [number, number];
   connectTimeoutMs?: number;
   healthTimeoutMs?: number;
+  /**
+   * Total budget for picking a local tunnel port.
+   *
+   * Bounded because a forward to a dead remote end stays bound and silent, so
+   * each candidate costs a full connect timeout.
+   */
+  portScanTimeoutMs?: number;
 }
 
 export interface DefaultsConfig {

@@ -7,7 +7,8 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node dist/state.test.js && node dist/v2.test.js",
+    "test": "npm run build && node dist/state.test.js && node dist/ssh.test.js && node dist/v2.test.js",
+    "test:forward": "npm run build && node dist/ssh.test.js",
     "verify:remote": "npm run build && node ../scripts/verify-remote-lifecycle.mjs"
   },
   "dependencies": {

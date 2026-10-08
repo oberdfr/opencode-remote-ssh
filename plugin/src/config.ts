@@ -8,6 +8,7 @@ const DEFAULT_TUNNEL: Required<TunnelConfig> = {
   localPortRange: [39000, 39999],
   connectTimeoutMs: 15_000,
   healthTimeoutMs: 5_000,
+  portScanTimeoutMs: 60_000,
 };
 
 const DEFAULTS: Required<DefaultsConfig> = {
