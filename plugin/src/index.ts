@@ -130,7 +130,7 @@ async function findReusableBinding(providerName: string, host?: string): Promise
   let wanted: string | undefined;
   if (host) {
     try {
-      wanted = providers.resolve({ provider: providerName, host }).host.name;
+      wanted = providers.canonicalHostName(providerName, host);
     } catch {
       return undefined;
     }

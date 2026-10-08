@@ -71,9 +71,60 @@ async function testV2SetupRegistersTools() {
   }
 }
 
+async function testCanonicalHostNameIgnoresLeases() {
+  const { ProviderRegistry } = await import("./provider.js");
+  const { LeaseManager } = await import("./leases.js");
+  const { resolveConfig } = await import("./config.js");
+
+  const config = resolveConfig({
+    providers: {
+      default: {
+        hosts: [
+          { name: "pve", aliases: ["proxmox"], ssh: { host: "192.0.2.10", user: "root" } },
+          { name: "llm", ssh: { host: "192.0.2.25", user: "root" } },
+        ],
+      },
+    },
+  });
+
+  const leases = new LeaseManager();
+  const registry = new ProviderRegistry(config, leases);
+
+  // Lease pve exclusively, then resolve it as a reuse target. resolve() refuses
+  // a leased host, so using it here made a switch to an already-bound host throw
+  // instead of reusing the existing binding.
+  registry.acquireResolved({ provider: "default", host: "pve" }, "ws-1");
+
+  let threw = false;
+  try {
+    registry.resolve({ provider: "default", host: "pve" });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "precondition: resolve() refuses a leased host");
+
+  assert(
+    registry.canonicalHostName("default", "pve") === "pve",
+    "canonicalHostName must resolve a leased host by name",
+  );
+  assert(
+    registry.canonicalHostName("default", "192.0.2.25") === "llm",
+    "canonicalHostName must resolve by ssh.host",
+  );
+  assert(
+    registry.canonicalHostName("default", "proxmox") === "pve",
+    "canonicalHostName must resolve by alias",
+  );
+  assert(
+    registry.canonicalHostName("default", "llm") === "llm",
+    "canonicalHostName must resolve a free host too",
+  );
+}
+
 async function run() {
   await testV2PluginDefinition();
   await testV2SetupRegistersTools();
+  await testCanonicalHostNameIgnoresLeases();
   console.log("v2.test.ts: ok");
 }
 

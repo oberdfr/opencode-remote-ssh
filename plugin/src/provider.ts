@@ -89,6 +89,30 @@ export class ProviderRegistry {
     return this.resolveWithLease(request, workspaceID).selection;
   }
 
+  /**
+   * Canonical host name for a requested target, ignoring leases.
+   *
+   * `resolve` deliberately refuses a host that is already leased, which is right
+   * when acquiring one but wrong when the caller only wants to know *which* host
+   * an existing binding refers to. Using it for that made a switch to a host that
+   * already had a binding throw, so the binding was never reused.
+   */
+  canonicalHostName(providerName: string, target: string): string {
+    const provider = this.config.providers[providerName];
+    if (!provider) {
+      throw new Error(`Unknown provider '${providerName}'`);
+    }
+
+    const host = provider.hosts.find(
+      (item) => item.name === target || item.ssh.host === target || item.aliases?.includes(target) === true,
+    );
+    if (!host) {
+      throw new Error(`Host '${target}' not found in provider '${providerName}'`);
+    }
+
+    return host.name;
+  }
+
   release(host: string, workspaceID: string): void {
     this.leases.release(host, workspaceID);
   }
