@@ -66,7 +66,27 @@ export class SSHManager {
       }
     }
 
-    await this.execSSHAllowFailure(sshArgs, "pkill -f 'opencode-remote-stub' 2>/dev/null || true");
+    // Stop only this install root's stub, never every stub on the host.
+    //
+    // A pattern-wide `pkill -f opencode-remote-stub` also matched the stubs of
+    // sibling containers and of any other install root, because a pattern match
+    // sees the full command line and this plugin's stub is always launched with
+    // this same binary name. On a Proxmox host where the configured hosts are LXC
+    // containers, bootstrapping one host killed the healthy workspaces of all the
+    // others, which then surfaced as unreachable tunnels.
+    //
+    // Matching the resolved install-root path is precise: a sibling container's
+    // install root resolves to a different path and is left running.
+    const escapedInstallRoot = installRoot.replace(/'/g, `'\\''`);
+    const stopExisting = [
+      `ROOT='${escapedInstallRoot}'`,
+      "PIDS=$(ps -eo pid=,args= 2>/dev/null | awk -v root=\"$ROOT/bin/opencode-remote-stub\" 'index($0, root) {print $1}')",
+      'if [ -n "$PIDS" ]; then kill $PIDS 2>/dev/null || true; fi',
+    ].join("; ");
+
+    await this.execSSHAllowFailure(sshArgs, stopExisting);
+    // Give the old stub a moment to release the listen socket before rebinding.
+    await this.sleep(500);
     await this.execSSH(sshArgs, `mkdir -p ${installRoot}/log`);
     await this.execSSH(sshArgs, this.buildRemoteStartCommand(installRoot, remotePort));
 
@@ -524,19 +544,38 @@ export class SSHManager {
   }
 
   private buildRemoteStartCommand(installRoot: string, remotePort: number): string {
+    // The stub must survive the bootstrap SSH session exiting, so it is started in
+    // its own session. setsid does that directly when available; otherwise a
+    // Python launcher uses os.setsid via preexec_fn.
+    //
+    // This deliberately avoids two heredocs chained with `||`. A shell consumes a
+    // single heredoc body for the whole compound command, so on a host without
+    // python2 the `python` fallback received an empty stream and started nothing,
+    // leaving the stub silently not listening.
+    const stubArgs = [
+      `${installRoot}/bin/opencode-remote-stub`,
+      `--listen 127.0.0.1:${remotePort}`,
+      `--token-file ${installRoot}/run/stub.token`,
+      `--state-dir ${installRoot}/state`,
+      `--log-file ${installRoot}/log/stub.log`,
+    ].join(" ");
+
     return [
-      "python2 - <<'PY' 2>/dev/null || python - <<'PY'",
-      "import os",
-      "import subprocess",
-      "import time",
-      "import sys",
-      "null_in = open('/dev/null', 'rb')",
-      "null_out = open('/dev/null', 'ab')",
-      `cmd = ['${installRoot}/bin/opencode-remote-stub', '--listen', '127.0.0.1:${remotePort}', '--token-file', '${installRoot}/run/stub.token', '--state-dir', '${installRoot}/state', '--log-file', '${installRoot}/log/stub.log']`,
-      "proc = subprocess.Popen(cmd, stdin=null_in, stdout=null_out, stderr=null_out, close_fds=True, preexec_fn=os.setsid)",
+      `STUB="${stubArgs}"`,
+      "if command -v setsid >/dev/null 2>&1; then",
+      "  setsid $STUB </dev/null >/dev/null 2>&1 &",
+      "else",
+      "  PY=$(command -v python3 || command -v python || command -v python2)",
+      '  if [ -z "$PY" ]; then echo "no setsid and no python to detach the stub" >&2; exit 1; fi',
+      '  "$PY" - <<\'PY\'',
+      "import os, subprocess, sys, time",
+      'cmd = os.environ["STUB"].split()',
+      "proc = subprocess.Popen(cmd, stdin=open('/dev/null','rb'), stdout=open('/dev/null','ab'), stderr=open('/dev/null','ab'), close_fds=True, preexec_fn=os.setsid)",
       "time.sleep(2)",
       "sys.exit(0 if proc.poll() is None else 1)",
       "PY",
+      "fi",
+      "exit 0",
     ].join("\n");
   }
 }
