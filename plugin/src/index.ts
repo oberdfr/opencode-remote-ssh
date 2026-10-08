@@ -118,13 +118,32 @@ async function createConnectedBinding(providerName: string, host: string | undef
 }
 
 async function findReusableBinding(providerName: string, host?: string): Promise<WorkspaceBinding | undefined> {
+  // Resolve the requested target once, up front.
+  //
+  // Resolving inside the loop made each candidate binding pay for a full
+  // reconnect of every *other* host before reaching the right one, so switching
+  // to a single host took as long as the sum of all the stale ones — measured at
+  // 77s for one host across three dead ones. Resolving first also lets a
+  // candidate that cannot be the requested host be skipped with no network work.
+  let wanted: string | undefined;
+  if (host) {
+    try {
+      wanted = providers.resolve({ provider: providerName, host }).host.name;
+    } catch {
+      return undefined;
+    }
+  }
+
   for (const binding of listBindings()) {
     if (binding.status === "removed" || binding.provider !== providerName) {
       continue;
     }
+    if (wanted && binding.host !== wanted) {
+      continue;
+    }
 
     try {
-      const selection = providers.acquireResolved({ provider: providerName, host: host ?? binding.host }, binding.workspaceID);
+      const selection = providers.acquireResolved({ provider: providerName, host: wanted ?? binding.host }, binding.workspaceID);
       if (selection.host.name !== binding.host) {
         providers.release(selection.host.name, binding.workspaceID);
         continue;
