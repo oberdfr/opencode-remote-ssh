@@ -297,8 +297,16 @@ const sshProviderAdaptor: WorkspaceAdapter = {
 };
 
 function ensureInitialized(options?: Record<string, unknown>): void {
-  if (!config) {
-    config = resolveConfig((options as ResolvedPluginConfig | undefined) ?? { providers: {} });
+  const next = resolveConfig(
+    (options as ResolvedPluginConfig | undefined) ?? (config ? { providers: config.providers } : { providers: {} }),
+  );
+
+  // Re-resolve on every tool call. Setup runs once per server, so a config edited
+  // afterwards stayed invisible until a restart: hosts added to opencode.json
+  // reported "Unknown provider". Comparing the resolved providers is enough to
+  // detect the change, and re-running only on change keeps this cheap.
+  if (!config || JSON.stringify(next.providers) !== JSON.stringify(config.providers)) {
+    config = next;
     sshManager = new SSHManager(config);
     providers = new ProviderRegistry(config, leases);
     rehydrateLeasesFromState();
@@ -327,6 +335,7 @@ function buildToolDefinitions(): ToolDefinition[] {
       },
       execute: async (args: { host?: string; provider?: string }) => {
         try {
+          ensureInitialized();
           const providerName = args.provider || Object.keys(config.providers)[0] || "default";
           const binding = await findReusableBinding(providerName, args.host)
             ?? await createConnectedBinding(providerName, args.host, args.host || providerName);
@@ -359,6 +368,7 @@ function buildToolDefinitions(): ToolDefinition[] {
         additionalProperties: false,
       },
       execute: async () => {
+        ensureInitialized();
         const bindings = [];
         for (const binding of listBindings()) {
           try {
@@ -395,6 +405,7 @@ function buildToolDefinitions(): ToolDefinition[] {
         additionalProperties: false,
       },
       execute: async (args: { workspaceID?: string }) => {
+        ensureInitialized();
         const bindings = args.workspaceID ? listBindings().filter((binding) => binding.workspaceID === args.workspaceID) : listBindings();
         if (bindings.length === 0) {
           return { content: JSON.stringify({ success: false, error: "No active remote connection to disconnect." }) };
@@ -421,6 +432,7 @@ function buildToolDefinitions(): ToolDefinition[] {
         additionalProperties: false,
       },
       execute: async (args: { host?: string; provider?: string }) => {
+        ensureInitialized();
         const providerName = args.provider || Object.keys(config.providers)[0] || "default";
         let binding: WorkspaceBinding | undefined;
         let createdForDoctor = false;
@@ -478,6 +490,7 @@ function buildToolDefinitions(): ToolDefinition[] {
       },
       execute: async (args: { workspaceName: string; provider?: string; host?: string }) => {
         try {
+          ensureInitialized();
           const providerName = args.provider || Object.keys(config.providers)[0];
           if (!providerName) {
             throw new Error("No providers configured for opencode-remote-provider");
@@ -535,6 +548,7 @@ function buildToolDefinitions(): ToolDefinition[] {
         additionalProperties: false,
       },
       execute: async () => {
+        ensureInitialized();
         const recovered = [];
         for (const binding of listBindings()) {
           recovered.push(await ensureBindingReady(binding));
@@ -554,6 +568,7 @@ function buildToolDefinitions(): ToolDefinition[] {
         additionalProperties: false,
       },
       execute: async (args: { workspaceID: string }) => {
+        ensureInitialized();
         const binding = getBinding(args.workspaceID);
         if (!binding) {
           return { content: JSON.stringify({ success: false, error: "Workspace not found" }) };
@@ -579,6 +594,7 @@ function buildToolDefinitions(): ToolDefinition[] {
       },
       execute: async (args: { command: string; workspaceID?: string; cwd?: string; autoApprove?: boolean }) => {
         try {
+          ensureInitialized();
           let binding: WorkspaceBinding | undefined;
           if (args.workspaceID) {
             binding = getBinding(args.workspaceID);
