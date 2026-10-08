@@ -4,7 +4,22 @@ All notable changes to opencode-remote-ssh will be documented in this file.
 
 ## [Unreleased]
 
-## [1.1.5] - 2026-09-14
+## [1.2.0] - 2026-10-08
+
+### Added
+
+- Ported the plugin to the native OpenCode V2 Plugin API (`@opencode/plugin`) with `Plugin.define` and lifecycle registrations.
+- Added `remote-shell` (`remote_shell`) tool to execute shell commands directly on the active remote host and workspace with permission handling.
+- Registered both hyphenated (`remote-switch`) and underscore (`remote_switch`) tool aliases for compatibility across all client environments.
+- Added automated V2 plugin definition and tool registration unit tests (`plugin/src/v2.test.ts`).
+
+### Changed
+
+- Updated `opencode-remote-cli.sh` to support OpenCode V2 configuration (`plugins: [...]`) and JSONC files with comments.
+- Updated `verify-remote-lifecycle.mjs` to parse JSONC configurations and resolve V2 plugin configuration entries.
+- Enhanced `config.ts` stub binary path discovery to automatically detect pre-built stub binaries.
+- Preserved OpenCode V1 entrypoint backwards compatibility.
+
 
 ### Added
 

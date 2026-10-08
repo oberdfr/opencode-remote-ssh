@@ -1,0 +1,11 @@
+{
+  "name": "opencode-remote-ssh",
+  "version": "1.2.0",
+  "description": "Provider-based remote workspace plugin and Go stub for OpenCode over SSH",
+  "type": "module",
+  "main": "./plugin/dist/index.js",
+  "types": "./plugin/dist/index.d.ts",
+  "exports": {
+    ".": "./plugin/dist/index.js"
+  }
+}

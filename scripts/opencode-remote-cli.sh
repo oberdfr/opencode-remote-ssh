@@ -55,13 +55,24 @@ assert_supported_config_mode() {
 import json
 import os
 import sys
+import re
+
+def load_cfg(path):
+    with open(path) as f:
+        text = f.read()
+    clean = re.sub(r'//.*?$|/\*.*?\*/|"(?:\\.|[^\\"])*"', lambda m: "" if m.group(0).startswith("/") else m.group(0), text, flags=re.DOTALL | re.MULTILINE)
+    return json.loads(clean)
 
 config_file = os.path.expanduser(os.environ["CONFIG_FILE"])
 plugin_name = os.environ["PLUGIN_NAME"]
 
-with open(config_file) as f:
-    data = json.load(f)
+data = load_cfg(config_file)
 
+# V2 check
+if "plugins" in data and isinstance(data["plugins"], list):
+    sys.exit(0)
+
+# V1 check
 plugins = data.get("plugin", [])
 package_entry = False
 path_entries = []
@@ -86,13 +97,32 @@ has_plugin() {
 import json
 import os
 import sys
+import re
 
-with open(os.path.expanduser(os.environ["CONFIG_FILE"])) as f:
-    data = json.load(f)
+def load_cfg(path):
+    with open(path) as f:
+        text = f.read()
+    clean = re.sub(r'//.*?$|/\*.*?\*/|"(?:\\.|[^\\"])*"', lambda m: "" if m.group(0).startswith("/") else m.group(0), text, flags=re.DOTALL | re.MULTILINE)
+    return json.loads(clean)
 
+data = load_cfg(os.path.expanduser(os.environ["CONFIG_FILE"]))
+plugin_name = os.environ["PLUGIN_NAME"]
+
+# V2 format
+if "plugins" in data and isinstance(data["plugins"], list):
+    for entry in data["plugins"]:
+        if isinstance(entry, dict):
+            pkg = entry.get("package", "")
+            if pkg == plugin_name or plugin_name in pkg or "opencode-remote" in pkg:
+                sys.exit(0)
+        elif isinstance(entry, str) and (entry == plugin_name or "opencode-remote" in entry):
+            sys.exit(0)
+
+# V1 format
 for entry in data.get("plugin", []):
-    if isinstance(entry, list) and entry and entry[0] == os.environ["PLUGIN_NAME"]:
+    if isinstance(entry, list) and entry and (entry[0] == plugin_name or "opencode-remote" in str(entry[0])):
         sys.exit(0)
+
 sys.exit(1)
 PY
 }
@@ -101,12 +131,29 @@ get_plugin_config() {
     python3 - <<'PY'
 import json
 import os
+import re
 
-with open(os.path.expanduser(os.environ["CONFIG_FILE"])) as f:
-    data = json.load(f)
+def load_cfg(path):
+    with open(path) as f:
+        text = f.read()
+    clean = re.sub(r'//.*?$|/\*.*?\*/|"(?:\\.|[^\\"])*"', lambda m: "" if m.group(0).startswith("/") else m.group(0), text, flags=re.DOTALL | re.MULTILINE)
+    return json.loads(clean)
 
+data = load_cfg(os.path.expanduser(os.environ["CONFIG_FILE"]))
+plugin_name = os.environ["PLUGIN_NAME"]
+
+# V2 format
+if "plugins" in data and isinstance(data["plugins"], list):
+    for entry in data["plugins"]:
+        if isinstance(entry, dict):
+            pkg = entry.get("package", "")
+            if pkg == plugin_name or plugin_name in pkg or "opencode-remote" in pkg:
+                print(json.dumps(entry.get("options", {})))
+                raise SystemExit
+
+# V1 format
 for entry in data.get("plugin", []):
-    if isinstance(entry, list) and len(entry) >= 2 and entry[0] == os.environ["PLUGIN_NAME"]:
+    if isinstance(entry, list) and len(entry) >= 2 and (entry[0] == plugin_name or "opencode-remote" in str(entry[0])):
         print(json.dumps(entry[1]))
         break
 else:
@@ -121,11 +168,26 @@ init_plugin() {
     echo "$config" | python3 - <<'PY' | write_config
 import json
 import sys
+import re
+
+text = sys.stdin.read()
+clean = re.sub(r'//.*?$|/\*.*?\*/|"(?:\\.|[^\\"])*"', lambda m: "" if m.group(0).startswith("/") else m.group(0), text, flags=re.DOTALL | re.MULTILINE)
+data = json.loads(clean)
 
 plugin_name = __import__("os").environ["PLUGIN_NAME"]
-data = json.load(sys.stdin)
-plugins = data.setdefault("plugin", [])
 
+# If V2 format exists
+if "plugins" in data and isinstance(data["plugins"], list):
+    for entry in data["plugins"]:
+        if isinstance(entry, dict) and (entry.get("package") == plugin_name or "opencode-remote" in entry.get("package", "")):
+            print(json.dumps(data, indent=2))
+            raise SystemExit
+    data["plugins"].append({"package": plugin_name, "options": {"providers": {}}})
+    print(json.dumps(data, indent=2))
+    raise SystemExit
+
+# Fallback to V1 format
+plugins = data.setdefault("plugin", [])
 for entry in plugins:
     if isinstance(entry, list) and entry and entry[0] == plugin_name:
         print(json.dumps(data, indent=2))
@@ -154,6 +216,13 @@ cmd_add() {
     python3 - <<'PY' | write_config
 import json
 import os
+import re
+
+def load_cfg(path):
+    with open(path) as f:
+        text = f.read()
+    clean = re.sub(r'//.*?$|/\*.*?\*/|"(?:\\.|[^\\"])*"', lambda m: "" if m.group(0).startswith("/") else m.group(0), text, flags=re.DOTALL | re.MULTILINE)
+    return json.loads(clean)
 
 config_file = os.path.expanduser(os.environ["CONFIG_FILE"])
 plugin_name = os.environ["PLUGIN_NAME"]
@@ -162,31 +231,51 @@ host = os.environ["REMOTE_HOST"]
 user = os.environ["REMOTE_USER"]
 port = int(os.environ["REMOTE_PORT"])
 identity = os.environ.get("REMOTE_IDENTITY", "")
+ssh_host = os.environ.get("REMOTE_SSH_HOST", host)
 
-with open(config_file) as f:
-    data = json.load(f)
+data = load_cfg(config_file)
 
-for entry in data.get("plugin", []):
-    if isinstance(entry, list) and entry and entry[0] == plugin_name:
-        plugin = entry[1] if len(entry) > 1 else {}
-        entry[1] = plugin
-        providers = plugin.setdefault("providers", {})
-        provider_config = providers.setdefault(provider, {"strategy": "first_available", "hosts": []})
-        hosts = [item for item in provider_config.setdefault("hosts", []) if item.get("name") != host]
-        ssh_host = os.environ.get("REMOTE_SSH_HOST", host)
-        host_entry = {
-            "name": host,
-            "ssh": {
-                "host": ssh_host,
-                "user": user,
-                "port": port,
-            },
-        }
-        if identity:
-            host_entry["ssh"]["identityFile"] = identity
-        hosts.append(host_entry)
-        provider_config["hosts"] = hosts
-        break
+host_entry = {
+    "name": host,
+    "ssh": {
+        "host": ssh_host,
+        "user": user,
+        "port": port,
+    },
+}
+if identity:
+    host_entry["ssh"]["identityFile"] = identity
+
+found = False
+
+# Try V2 format
+if "plugins" in data and isinstance(data["plugins"], list):
+    for entry in data["plugins"]:
+        if isinstance(entry, dict):
+            pkg = entry.get("package", "")
+            if pkg == plugin_name or plugin_name in pkg or "opencode-remote" in pkg:
+                options = entry.setdefault("options", {})
+                providers = options.setdefault("providers", {})
+                provider_config = providers.setdefault(provider, {"strategy": "first_available", "hosts": []})
+                hosts = [item for item in provider_config.setdefault("hosts", []) if item.get("name") != host]
+                hosts.append(host_entry)
+                provider_config["hosts"] = hosts
+                found = True
+                break
+
+# Try V1 format
+if not found:
+    for entry in data.get("plugin", []):
+        if isinstance(entry, list) and entry and (entry[0] == plugin_name or "opencode-remote" in str(entry[0])):
+            plugin = entry[1] if len(entry) > 1 else {}
+            entry[1] = plugin
+            providers = plugin.setdefault("providers", {})
+            provider_config = providers.setdefault(provider, {"strategy": "first_available", "hosts": []})
+            hosts = [item for item in provider_config.setdefault("hosts", []) if item.get("name") != host]
+            hosts.append(host_entry)
+            provider_config["hosts"] = hosts
+            found = True
+            break
 
 print(json.dumps(data, indent=2))
 PY
@@ -204,17 +293,36 @@ cmd_remove() {
     python3 - <<'PY' | write_config
 import json
 import os
+import re
+
+def load_cfg(path):
+    with open(path) as f:
+        text = f.read()
+    clean = re.sub(r'//.*?$|/\*.*?\*/|"(?:\\.|[^\\"])*"', lambda m: "" if m.group(0).startswith("/") else m.group(0), text, flags=re.DOTALL | re.MULTILINE)
+    return json.loads(clean)
 
 config_file = os.path.expanduser(os.environ["CONFIG_FILE"])
 plugin_name = os.environ["PLUGIN_NAME"]
 provider = os.environ["REMOTE_PROVIDER"]
 host = os.environ["REMOTE_HOST"]
 
-with open(config_file) as f:
-    data = json.load(f)
+data = load_cfg(config_file)
 
+# Try V2 format
+if "plugins" in data and isinstance(data["plugins"], list):
+    for entry in data["plugins"]:
+        if isinstance(entry, dict):
+            pkg = entry.get("package", "")
+            if pkg == plugin_name or plugin_name in pkg or "opencode-remote" in pkg:
+                options = entry.get("options", {})
+                providers = options.get("providers", {})
+                if provider in providers:
+                    providers[provider]["hosts"] = [item for item in providers[provider].get("hosts", []) if item.get("name") != host]
+                break
+
+# Try V1 format
 for entry in data.get("plugin", []):
-    if isinstance(entry, list) and entry and entry[0] == plugin_name:
+    if isinstance(entry, list) and entry and (entry[0] == plugin_name or "opencode-remote" in str(entry[0])):
         plugin = entry[1] if len(entry) > 1 else {}
         providers = plugin.get("providers", {})
         if provider in providers:
@@ -237,15 +345,34 @@ cmd_list() {
 import json
 import os
 import sys
+import re
 
-with open(os.path.expanduser(os.environ["CONFIG_FILE_VALUE"])) as f:
-    data = json.load(f)
+def load_cfg(path):
+    with open(path) as f:
+        text = f.read()
+    clean = re.sub(r'//.*?$|/\*.*?\*/|"(?:\\.|[^\\"])*"', lambda m: "" if m.group(0).startswith("/") else m.group(0), text, flags=re.DOTALL | re.MULTILINE)
+    return json.loads(clean)
 
+data = load_cfg(os.path.expanduser(os.environ["CONFIG_FILE_VALUE"]))
+
+plugin_name = os.environ["PLUGIN_NAME_VALUE"]
 plugin = {}
-for entry in data.get("plugin", []):
-    if isinstance(entry, list) and len(entry) >= 2 and entry[0] == os.environ["PLUGIN_NAME_VALUE"]:
-        plugin = entry[1]
-        break
+
+# Try V2 format
+if "plugins" in data and isinstance(data["plugins"], list):
+    for entry in data["plugins"]:
+        if isinstance(entry, dict):
+            pkg = entry.get("package", "")
+            if pkg == plugin_name or plugin_name in pkg or "opencode-remote" in pkg:
+                plugin = entry.get("options", {})
+                break
+
+# Try V1 format
+if not plugin:
+    for entry in data.get("plugin", []):
+        if isinstance(entry, list) and len(entry) >= 2 and (entry[0] == plugin_name or "opencode-remote" in str(entry[0])):
+            plugin = entry[1]
+            break
 
 providers = plugin.get("providers", {})
 if not providers:

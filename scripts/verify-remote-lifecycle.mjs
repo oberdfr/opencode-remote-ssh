@@ -34,11 +34,38 @@ function parseArgs(argv) {
   return out;
 }
 
+function parseJsonc(text) {
+  const stripped = text.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (m, g) => (g ? "" : m));
+  return JSON.parse(stripped);
+}
+
 function pluginConfigFromOpenCodeConfig(configPath) {
-  const parsed = JSON.parse(readFileSync(configPath, "utf8"));
-  const plugins = Array.isArray(parsed.plugin) ? parsed.plugin : [];
+  const parsed = parseJsonc(readFileSync(configPath, "utf8"));
   const repoPluginPath = resolve(repoRoot, "plugin");
 
+  // V2 format: "plugins" array of objects { package: "...", options: { ... } }
+  if (Array.isArray(parsed.plugins)) {
+    for (const entry of parsed.plugins) {
+      if (typeof entry === "object" && entry !== null && entry.package) {
+        const target = String(entry.package);
+        const resolvedTarget = target.replace(/^file:\/\//, "");
+        if (
+          target === "opencode-remote-provider" ||
+          target === "opencode-remote-ssh" ||
+          resolvedTarget.includes("opencode-remote") ||
+          resolvedTarget.includes("remote-provider") ||
+          resolvedTarget.includes("remote-ssh") ||
+          resolve(resolvedTarget) === repoPluginPath ||
+          resolve(resolvedTarget) === repoRoot
+        ) {
+          return entry.options || {};
+        }
+      }
+    }
+  }
+
+  // V1 format: "plugin" array of [target, options]
+  const plugins = Array.isArray(parsed.plugin) ? parsed.plugin : [];
   for (const entry of plugins) {
     if (!Array.isArray(entry) || entry.length < 2 || !entry[1] || typeof entry[1] !== "object") {
       continue;
@@ -48,9 +75,13 @@ function pluginConfigFromOpenCodeConfig(configPath) {
     const resolvedTarget = target.startsWith("/") ? resolve(target) : target;
     if (
       target === "opencode-remote-provider" ||
+      target === "opencode-remote-ssh" ||
       resolvedTarget === repoPluginPath ||
+      resolvedTarget === repoRoot ||
       basename(target) === "opencode-remote-provider" ||
-      target.includes("remote-provider")
+      basename(target) === "opencode-remote-ssh" ||
+      target.includes("remote-provider") ||
+      target.includes("remote-ssh")
     ) {
       return entry[1];
     }

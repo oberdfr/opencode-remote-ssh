@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DefaultsConfig, PluginConfig, ProviderConfig, TunnelConfig } from "./types.js";
@@ -15,7 +17,25 @@ const DEFAULTS: Required<DefaultsConfig> = {
 };
 
 const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_STUB_BINARY = resolve(join(MODULE_DIR, "../../stub/bin/opencode-remote-stub"));
+
+function findDefaultStubBinary(): string {
+  const candidates = [
+    resolve(join(MODULE_DIR, "../../stub/bin/opencode-remote-stub")),
+    resolve(join(MODULE_DIR, "../stub/bin/opencode-remote-stub")),
+    resolve(join(MODULE_DIR, "stub/bin/opencode-remote-stub")),
+    resolve(join(MODULE_DIR, "../../../stub/bin/opencode-remote-stub")),
+    join(homedir(), ".config", "opencode", "opencode-remote-ssh", "stub", "bin", "opencode-remote-stub"),
+    join(homedir(), ".opencode-remote", "bin", "opencode-remote-stub"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return candidates[0];
+}
+
+const DEFAULT_STUB_BINARY = findDefaultStubBinary();
 
 export interface ResolvedPluginConfig extends PluginConfig {
   installRoot: string;
@@ -51,7 +71,9 @@ export function resolveConfig(input: PluginConfig): ResolvedPluginConfig {
   return {
     ...input,
     installRoot: input.installRoot ?? "~/.opencode-remote",
-    stubBinaryPath: input.stubBinaryPath ? resolve(input.stubBinaryPath) : DEFAULT_STUB_BINARY,
+    stubBinaryPath: input.stubBinaryPath
+      ? resolve(input.stubBinaryPath.replace(/^~\//, `${homedir()}/`))
+      : findDefaultStubBinary(),
     tunnel: {
       ...DEFAULT_TUNNEL,
       ...input.tunnel,

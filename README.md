@@ -38,7 +38,7 @@ If you are loading the plugin from a local filesystem path during development, e
 - Self-contained remote stub binary
 - Workspace session restore support
 - Shell and command execution endpoints on the remote stub
-- User-facing `remote-switch`, `remote-status`, `remote-disconnect`, and `remote-doctor` tools
+- User-facing `remote-switch`, `remote-shell`, `remote-status`, `remote-disconnect`, and `remote-doctor` tools
 - Lower-level `remote-workspace-create`, `remote-workspace-list`, and `remote-workspace-remove` tools
 - Configurable local `stubBinaryPath` override when auto-discovery is not suitable
 - Live remote lifecycle harness for validating a configured host before relying on interactive use
@@ -61,7 +61,39 @@ If the plugin cannot find the stub binary automatically, set `stubBinaryPath` in
 
 ### 1. Configure the Plugin
 
-Recommended public configuration uses the package name:
+In OpenCode V2, add the plugin to `plugins` in `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "plugins": [
+    {
+      "package": "file:///path/to/opencode-remote-ssh",
+      "options": {
+        "providers": {
+          "default": {
+            "strategy": "first_available",
+            "hosts": [
+              {
+                "name": "prod-web-1",
+                "aliases": ["web-primary", "prod-app"],
+                "ssh": {
+                  "host": "203.0.113.10",
+                  "user": "ops",
+                  "port": 22,
+                  "identityFile": "~/.ssh/id_ed25519"
+                },
+                "labels": ["linux", "production"]
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+In OpenCode V1 (legacy):
 
 ```json
 {
